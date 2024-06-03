@@ -571,7 +571,7 @@ import "./App.css";
 
 // ANCHOR: fe_contract_id
 const CONTRACT_ID =
-  "0x797d208d0104131c2ab1f1e09c4914c7aef5b699fb494be864a5c37057076921";
+  "0x797d208d0104131........057076921";
 // ANCHOR_END: fe_contract_id
 
 function App() {
@@ -722,6 +722,285 @@ button {
   color: white;
 }
 ```
+
+### Создаем элементы
+===================== 
+
+Для начала создаем папку components:
+
+    mkdir components
+
+Затем создаем и наполняем внутри файл ListItem.tsx:
+
+    touch ListItem.tsx
+
+```ruby
+import { useState } from "react";
+import { ContractAbi } from "../contracts";
+import { bn } from "fuels";
+// ANCHOR_END: fe_list_items_import
+
+// ANCHOR: fe_list_items_interface
+interface ListItemsProps {
+  contract: ContractAbi | null;
+}
+// ANCHOR_END: fe_list_items_interface
+
+// ANCHOR: fe_list_items_function
+export default function ListItem({contract}: ListItemsProps){
+// ANCHOR_END: fe_list_items_function
+    // ANCHOR: fe_list_items_state_variables
+    const [metadata, setMetadata] = useState<string>("");
+    const [price, setPrice] = useState<string>("0");
+    const [status, setStatus] = useState<'success' | 'error' | 'loading' | 'none'>('none');
+    // ANCHOR_END: fe_list_items_state_variables
+    // ANCHOR: fe_list_items_handle_submit
+    async function handleSubmit(e: React.FormEvent<HTMLFormElement>){
+        e.preventDefault();
+        setStatus('loading')
+        if(contract !== null){
+            try {
+                const priceInput = bn.parseUnits(price.toString());
+                await contract.functions
+                .list_item(priceInput, metadata)
+                .txParams({
+                    gasLimit: 300_000,
+                })
+                .call();
+                setStatus('success')
+            } catch (e) {
+                console.log("ERROR:", e);
+                setStatus('error')
+            }
+        } else {
+            console.log("ERROR: Contract is null");
+        }
+    }
+    // ANCHOR_END: fe_list_items_handle_submit
+    // ANCHOR: fe_list_items_form
+    return (
+        <div>
+            <h2>List an Item</h2>
+            {status === 'none' &&
+            <form onSubmit={handleSubmit}>
+                <div className="form-control">
+                    <label htmlFor="metadata">Item Metadata:</label>
+                    <input 
+                        id="metadata" 
+                        type="text" 
+                        pattern="\w{20}" 
+                        title="The metatdata must be 20 characters"
+                        required 
+                        onChange={(e) => setMetadata(e.target.value)}
+                    />
+                </div>
+
+                <div className="form-control">
+                    <label htmlFor="price">Item Price:</label>
+                    <input
+                        id="price"
+                        type="number"
+                        required
+                        min="0"
+                        step="any"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        onChange={(e) => {
+                          setPrice(e.target.value);
+                        }}
+                      />
+                </div>
+
+                <div className="form-control">
+                    <button type="submit">List item</button>
+                </div>
+            </form>
+            }
+
+            {status === 'success' && <div>Item successfully listed!</div>}
+            {status === 'error' && <div>Error listing item. Please try again.</div>}
+            {status === 'loading' && <div>Listing item...</div>}
+            
+        </div>
+    )
+}
+```
+
+Далее создадим и наполним новый файл с именем AllItems.tsx в папке components:
+
+    touch AllItems.tsx
+
+```ruby
+import { useState, useEffect } from "react";
+import { ContractAbi } from "../contracts";
+import ItemCard from "./ItemCard";
+import { BN } from "fuels";
+import { ItemOutput } from "../contracts/contracts/ContractAbi";
+
+interface AllItemsProps {
+  contract: ContractAbi | null;
+}
+
+export default function AllItems({ contract }: AllItemsProps) {
+  // ANCHOR_END: fe_all_items_template
+  // ANCHOR: fe_all_items_state_variables
+  const [items, setItems] = useState<ItemOutput[]>([]);
+  const [itemCount, setItemCount] = useState<number>(0);
+  const [status, setStatus] = useState<"success" | "loading" | "error">(
+    "loading"
+  );
+  // ANCHOR_END: fe_all_items_state_variables
+  // ANCHOR: fe_all_items_use_effect
+  useEffect(() => {
+    async function getAllItems() {
+      if (contract !== null) {
+        try {
+          let { value } = await contract.functions
+            .get_count()
+            .txParams({
+              gasLimit: 100_000,
+            })
+            .get();
+          let formattedValue = new BN(value).toNumber();
+          setItemCount(formattedValue);
+          let max = formattedValue + 1;
+          let tempItems = [];
+          for (let i = 1; i < max; i++) {
+            let resp = await contract.functions
+              .get_item(i)
+              .txParams({
+                gasLimit: 100_000,
+              })
+              .get();
+            tempItems.push(resp.value);
+          }
+          setItems(tempItems);
+          setStatus("success");
+        } catch (e) {
+          setStatus("error");
+          console.log("ERROR:", e);
+        }
+      }
+    }
+    getAllItems();
+  }, [contract]);
+  // ANCHOR_END: fe_all_items_use_effect
+  // ANCHOR: fe_all_items_cards
+  return (
+    <div>
+      <h2>All Items</h2>
+      {status === "success" && (
+        <div>
+          {itemCount === 0 ? (
+            <div>Uh oh! No items have been listed yet</div>
+          ) : (
+            <div>
+              <div>Total items: {itemCount}</div>
+              <div className="items-container">
+                {items.map((item) => (
+                  <ItemCard
+                    key={item.id.format()}
+                    contract={contract}
+                    item={item}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {status === "error" && (
+        <div>Something went wrong, try reloading the page.</div>
+      )}
+      {status === "loading" && <div>Loading...</div>}
+    </div>
+  );
+}
+```
+Теперь создадим и наполним компонент карточки товара. Создайте новый файл с именем ItemCard.tsx в папке компонентов:
+
+    touch ItemCard.tsx
+
+```ruby
+import { useState } from "react";
+import { ItemOutput } from "../contracts/contracts/ContractAbi";
+import { ContractAbi } from "../contracts";
+import { BN } from 'fuels';
+
+interface ItemCardProps {
+  contract: ContractAbi | null;
+  item: ItemOutput;
+}
+
+export default function ItemCard({ item, contract }: ItemCardProps) {
+  // ANCHOR_END: fe_item_card_template
+  // ANCHOR: fe_item_card_status
+  const [status, setStatus] = useState<'success' | 'error' | 'loading' | 'none'>('none');
+  // ANCHOR_END: fe_item_card_status
+  // ANCHOR: fe_item_card_buy_item
+  async function handleBuyItem() {
+    if (contract !== null) {
+      setStatus('loading')
+      try {
+        const baseAssetId = contract.provider.getBaseAssetId();
+        await contract.functions.buy_item(item.id)
+        .txParams({ 
+          variableOutputs: 1,
+        })
+        .callParams({
+            forward: [item.price, baseAssetId],
+          })
+        .call()
+        setStatus("success");
+      } catch (e) {
+        console.log("ERROR:", e);
+        setStatus("error");
+      }
+    }
+  }
+  // ANCHOR_END: fe_item_card_buy_item
+  // ANCHOR: fe_item_cards
+  return (
+    <div className="item-card">
+      <div>Id: {new BN(item.id).toNumber()}</div>
+      <div>Metadata: {item.metadata}</div>
+      <div>Price: {new BN(item.price).formatUnits()} ETH</div>
+      <h3>Total Bought: {new BN(item.total_bought).toNumber()}</h3>
+      {status === 'success' && <div>Purchased ✅</div>}
+      {status === 'error' && <div>Something went wrong ❌</div>}
+      {status === 'none' &&  <button data-testid={`buy-button-${item.id}`} onClick={handleBuyItem}>Buy Item</button>}
+      {status === 'loading' && <div>Buying item..</div>}
+    </div>
+  );
+}
+```
+Теперь вы сможете увидеть и купить все предметы, перечисленные в вашем контракте.
+
+### Запускаем проект
+=====================  
+
+Внутри каталога fuel-project/frontend запускаем:
+
+    npm start
+
+Результат выглядит так:
+
+```ruby
+Compiled successfully!
+
+You can now view frontend in the browser.
+
+  Local:            http://localhost:3000
+  On Your Network:  http://192.168.4.48:3000
+
+Note that the development build is not optimized.
+To create a production build, use npm run build.
+```
+
+### Поздравляю! Вы только что создали целое децентрализованное приложение на Fuel!
+
+>При необходимости воспользуйтесь официальной документацией https://docs.fuel.network/guides/intro-to-sway/
+
 
 
     
